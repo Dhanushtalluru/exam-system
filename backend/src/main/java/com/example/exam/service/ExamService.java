@@ -7,21 +7,36 @@ import com.example.exam.repository.Repos.*;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service @RequiredArgsConstructor @Transactional
 public class ExamService {
-  private final UserRepo users; private final TestRepo tests; private final SubmissionRepo subs;
+  private final UserRepo users; private final TestRepo tests; private final SubmissionRepo subs; private final PasswordEncoder enc;
   private static final long GRACE_SECONDS = 10;
 
   static Map<String, Object> m(Object... kv) { Map<String, Object> r = new LinkedHashMap<>(); for (int i = 0; i < kv.length; i += 2) r.put((String) kv[i], kv[i + 1]); return r; }
-  static boolean manual(Question q) { return q.getType() == QType.SHORT_ANSWER || q.getType() == QType.DESCRIPTIVE; }
+  static boolean manual(Question q) { return q.getType() == QType.SHORT_ANSWER || q.getType() == QType.DESCRIPTIVE || q.getType() == QType.PICTURE; }
+  static String img(String d) {
+    if (d == null || d.isBlank()) return null;
+    if (!d.startsWith("data:image/") || d.length() > 1_500_000) throw new ApiException(400, "Picture must be an image smaller than about 1 MB");
+    return d;
+  }
+  static Set<String> setOf(String s) { return Arrays.stream(s.split("\n")).map(String::trim).filter(x -> !x.isEmpty()).collect(java.util.stream.Collectors.toSet()); }
+  void applyAccess(Test t, TestReq r) {
+    boolean sel = "SELECTED".equalsIgnoreCase(r.access());
+    Set<User> picked = new HashSet<>();
+    if (sel && r.allowedUserIds() != null) users.findAllById(r.allowedUserIds()).stream().filter(u -> u.getRole() == Role.USER).forEach(picked::add);
+    if (sel && picked.isEmpty()) throw new ApiException(400, "Select at least one user for restricted access");
+    t.setRestricted(sel); t.getAllowedUsers().clear(); if (sel) t.getAllowedUsers().addAll(picked);
+  }
+  boolean canAccess(Test t, User u) { return !t.isRestricted() || t.getAllowedUsers().stream().anyMatch(x -> x.getId().equals(u.getId())); }
   User cur(String email) { return users.findByEmail(email).orElseThrow(() -> new ApiException(401, "Unknown user")); }
 
   // ---------- mappers ----------
   Map<String, Object> qm(Question q, boolean admin) {
-    Map<String, Object> r = m("id", q.getId(), "type", q.getType(), "text", q.getText(), "marks", q.getMarks(), "options", new ArrayList<>(q.getOptions()));
+    Map<String, Object> r = m("id", q.getId(), "type", q.getType(), "text", q.getText(), "marks", q.getMarks(), "description", q.getDescription(), "imageData", q.getImageData(), "options", new ArrayList<>(q.getOptions()));
     if (admin) r.put("correctAnswer", q.getCorrectAnswer());
     return r;
   }
@@ -44,7 +59,7 @@ public class ExamService {
   Map<String, Object> sdetail(Submission s, boolean admin) {
     Map<String, Object> r = admin ? ssum(s) : usum(s);
     r.put("answers", s.getAnswers().stream().sorted(Comparator.comparing((Answer a) -> a.getQuestion().getId()))
-        .map(a -> m("answerId", a.getId(), "question", qm(a.getQuestion(), admin), "response", a.getResponse(), "marks", a.getMarks(), "feedback", a.getFeedback())).toList());
+        .map(a -> m("answerId", a.getId(), "question", qm(a.getQuestion(), admin), "response", a.getResponse(), "imageData", a.getImageData(), "marks", a.getMarks(), "feedback", a.getFeedback())).toList());
     return r;
   }
 
@@ -52,20 +67,28 @@ public class ExamService {
   public Map<String, Object> createTest(TestReq r) { Test t = new Test(); fill(t, r); return tfull(tests.save(t)); }
   public Map<String, Object> updateTest(Long id, TestReq r) {
     Test t = tests.findById(id).orElseThrow(() -> new ApiException(404, "Test not found"));
-    if (subs.existsByTestId(id)) throw new ApiException(409, "Test already has submissions and cannot be edited");
+    if (subs.existsByTestId(id)) { applyAccess(t, r); return tfull(t); }
     fill(t, r); return tfull(t);
   }
-  Map<String, Object> tfull(Test t) { Map<String, Object> r = tsum(t); r.put("questions", t.getQuestions().stream().map(q -> qm(q, true)).toList()); return r; }
+  Map<String, Object> tfull(Test t) { Map<String, Object> r = tsum(t); r.put("questions", t.getQuestions().stream().map(q -> qm(q, true)).toList());
+    r.put("restricted", t.isRestricted()); r.put("allowedUserIds", t.getAllowedUsers().stream().map(User::getId).toList()); return r; }
   void fill(Test t, TestReq r) {
-    t.setTitle(r.title()); t.setDescription(r.description()); t.setInstructions(r.instructions()); t.setDurationMinutes(r.durationMinutes()); t.setPassingMarks(r.passingMarks());
+    t.setTitle(r.title()); t.setDescription(r.description()); t.setInstructions(r.instructions()); t.setDurationMinutes(r.durationMinutes()); t.setPassingMarks(r.passingMarks()); applyAccess(t, r);
     t.getQuestions().clear(); double sum = 0;
     for (QReq x : r.questions()) {
       Question q = new Question(); q.setTest(t); q.setType(x.type()); q.setText(x.text()); q.setMarks(x.marks());
+      q.setDescription(x.description() == null || x.description().isBlank() ? null : x.description().trim()); q.setImageData(img(x.imageData()));
       if (x.type() == QType.MCQ) {
         List<String> o = x.options() == null ? List.of() : x.options().stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
         if (o.size() < 2) throw new ApiException(400, "MCQ needs at least 2 options");
         if (x.correctAnswer() == null || !o.contains(x.correctAnswer().trim())) throw new ApiException(400, "MCQ correct answer must be one of the options");
         q.setOptions(new ArrayList<>(o)); q.setCorrectAnswer(x.correctAnswer().trim());
+      } else if (x.type() == QType.MULTI_SELECT) {
+        List<String> o = x.options() == null ? List.of() : x.options().stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (o.size() < 2 || new HashSet<>(o).size() != o.size()) throw new ApiException(400, "Multiple-answer questions need at least 2 distinct options");
+        List<String> c = x.correctAnswer() == null ? List.of() : Arrays.stream(x.correctAnswer().split("\n")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (c.isEmpty() || !o.containsAll(c)) throw new ApiException(400, "Select at least one valid correct option");
+        q.setOptions(new ArrayList<>(o)); q.setCorrectAnswer(String.join("\n", c));
       } else if (x.type() == QType.TRUE_FALSE) {
         String c = x.correctAnswer() == null ? "" : x.correctAnswer().trim();
         if (!c.equalsIgnoreCase("true") && !c.equalsIgnoreCase("false")) throw new ApiException(400, "True/False correct answer must be True or False");
@@ -76,7 +99,9 @@ public class ExamService {
     if (r.passingMarks() > sum) throw new ApiException(400, "Passing marks cannot exceed total marks (" + sum + ")");
     t.setMaxMarks(sum);
   }
-  public List<Map<String, Object>> adminTests() { return tests.findAll().stream().map(this::tsum).toList(); }
+  public List<Map<String, Object>> adminTests() {
+    return tests.findAll().stream().map(t -> { var r = tsum(t); r.put("restricted", t.isRestricted()); r.put("allowedCount", t.getAllowedUsers().size()); return r; }).toList();
+  }
   public Map<String, Object> adminTest(Long id) { return tfull(tests.findById(id).orElseThrow(() -> new ApiException(404, "Test not found"))); }
   public void deleteTest(Long id) {
     if (!tests.existsById(id)) throw new ApiException(404, "Test not found");
@@ -88,7 +113,34 @@ public class ExamService {
     if (publish && t.getQuestions().isEmpty()) throw new ApiException(400, "Cannot publish a test without questions");
     t.setPublished(publish); return tsum(t);
   }
-  public List<Map<String, Object>> students() { return users.findByRole(Role.USER).stream().map(u -> m("id", u.getId(), "name", u.getName(), "email", u.getEmail())).toList(); }
+  public List<Map<String, Object>> students() { return users.findByRole(Role.USER).stream().<Map<String, Object>>map(u -> m("id", u.getId(), "name", u.getName(), "email", u.getEmail())).toList(); }
+
+  // ---------- admin: user management ----------
+  Map<String, Object> um(User u) { return m("id", u.getId(), "name", u.getName(), "email", u.getEmail()); }
+  User student(Long id) { return users.findById(id).filter(x -> x.getRole() == Role.USER).orElseThrow(() -> new ApiException(404, "User not found")); }
+  public Map<String, Object> createUser(UserReq r) {
+    String e = r.email().trim().toLowerCase();
+    if (users.existsByEmail(e)) throw new ApiException(409, "Email already registered");
+    if (r.password() == null || r.password().length() < 6) throw new ApiException(400, "Password must be at least 6 characters");
+    User u = new User(); u.setName(r.name().trim()); u.setEmail(e); u.setPassword(enc.encode(r.password())); u.setRole(Role.USER);
+    return um(users.save(u));
+  }
+  public Map<String, Object> updateUser(Long id, UserReq r) {
+    User u = student(id); String e = r.email().trim().toLowerCase();
+    if (!e.equals(u.getEmail()) && users.existsByEmail(e)) throw new ApiException(409, "Email already registered");
+    u.setName(r.name().trim()); u.setEmail(e);
+    if (r.password() != null && !r.password().isBlank()) {
+      if (r.password().length() < 6) throw new ApiException(400, "Password must be at least 6 characters");
+      u.setPassword(enc.encode(r.password()));
+    }
+    return um(u);
+  }
+  public void deleteUser(Long id) {
+    User u = student(id);
+    tests.findAll().forEach(t -> t.getAllowedUsers().removeIf(x -> x.getId().equals(id)));
+    subs.deleteAll(subs.findByUserIdOrderByStartedAtDesc(id));
+    users.delete(u);
+  }
 
   // ---------- admin: submissions ----------
   public List<Map<String, Object>> adminSubmissions(String status) {
@@ -123,25 +175,26 @@ public class ExamService {
   // ---------- user: tests & attempts ----------
   public List<Map<String, Object>> userTests(String email) {
     User u = cur(email);
-    return tests.findByPublishedTrue().stream().map(t -> { var r = tsum(t); r.put("attemptStatus", subs.findByUserIdAndTestId(u.getId(), t.getId()).map(s -> { expire(s); return s.getStatus(); }).orElse(null)); return r; }).toList();
+    return tests.findByPublishedTrue().stream().filter(t -> canAccess(t, u)).map(t -> { var r = tsum(t); r.put("attemptStatus", subs.findByUserIdAndTestId(u.getId(), t.getId()).map(s -> { expire(s); return s.getStatus(); }).orElse(null)); return r; }).toList();
   }
   public Map<String, Object> userTest(String email, Long id) {
     Test t = tests.findById(id).filter(Test::isPublished).orElseThrow(() -> new ApiException(404, "Test not found"));
-    var r = tsum(t); r.put("attemptStatus", subs.findByUserIdAndTestId(cur(email).getId(), id).map(Submission::getStatus).orElse(null)); return r;
+    User u = cur(email); if (!canAccess(t, u)) throw new ApiException(404, "Test not found");
+    var r = tsum(t); r.put("attemptStatus", subs.findByUserIdAndTestId(u.getId(), id).map(Submission::getStatus).orElse(null)); return r;
   }
   public Map<String, Object> start(String email, Long testId) {
     User u = cur(email);
     Test t = tests.findById(testId).filter(Test::isPublished).orElseThrow(() -> new ApiException(404, "Test not found"));
     Submission s = subs.findByUserIdAndTestId(u.getId(), testId).orElse(null);
-    if (s == null) { s = new Submission(); s.setUser(u); s.setTest(t); s.setStartedAt(Instant.now()); s.setStatus(Status.IN_PROGRESS); subs.save(s); }
+    if (s == null) { if (!canAccess(t, u)) throw new ApiException(404, "Test not found"); s = new Submission(); s.setUser(u); s.setTest(t); s.setStartedAt(Instant.now()); s.setStatus(Status.IN_PROGRESS); subs.save(s); }
     else { expire(s); if (s.getStatus() != Status.IN_PROGRESS) throw new ApiException(409, "You have already attempted this test"); }
     return attempt(s);
   }
   Map<String, Object> attempt(Submission s) {
-    Map<String, String> saved = new HashMap<>();
-    s.getAnswers().forEach(a -> saved.put(String.valueOf(a.getQuestion().getId()), a.getResponse()));
+    Map<String, String> saved = new HashMap<>(), imgs = new HashMap<>();
+    s.getAnswers().forEach(a -> { saved.put(String.valueOf(a.getQuestion().getId()), a.getResponse()); if (a.getImageData() != null) imgs.put(String.valueOf(a.getQuestion().getId()), a.getImageData()); });
     return m("submissionId", s.getId(), "endsAt", deadline(s), "serverTime", Instant.now(), "test", tsum(s.getTest()),
-        "questions", s.getTest().getQuestions().stream().map(q -> qm(q, false)).toList(), "savedAnswers", saved);
+        "questions", s.getTest().getQuestions().stream().map(q -> qm(q, false)).toList(), "savedAnswers", saved, "savedImages", imgs);
   }
   Instant deadline(Submission s) { return s.getStartedAt().plusSeconds(s.getTest().getDurationMinutes() * 60L); }
   Submission owned(String email, Long id) {
@@ -160,7 +213,7 @@ public class ExamService {
       Question q = s.getTest().getQuestions().stream().filter(x -> x.getId().equals(r.questionId())).findFirst().orElseThrow(() -> new ApiException(400, "Invalid question " + r.questionId()));
       Answer a = s.getAnswers().stream().filter(x -> x.getQuestion().getId().equals(q.getId())).findFirst().orElse(null);
       if (a == null) { a = new Answer(); a.setSubmission(s); a.setQuestion(q); s.getAnswers().add(a); }
-      a.setResponse(r.response());
+      a.setResponse(r.response()); if (q.getType() == QType.PICTURE) a.setImageData(img(r.imageData()));
     }
   }
   public Map<String, Object> submit(String email, Long id) {
@@ -177,7 +230,7 @@ public class ExamService {
       if (a == null) { a = new Answer(); a.setSubmission(s); a.setQuestion(q); s.getAnswers().add(a); }
       if (manual(q)) { hasManual = true; a.setMarks(null); }
       else {
-        boolean ok = a.getResponse() != null && q.getCorrectAnswer() != null && a.getResponse().trim().equalsIgnoreCase(q.getCorrectAnswer().trim());
+        boolean ok = a.getResponse() != null && q.getCorrectAnswer() != null && (q.getType() == QType.MULTI_SELECT ? setOf(a.getResponse()).equals(setOf(q.getCorrectAnswer())) : a.getResponse().trim().equalsIgnoreCase(q.getCorrectAnswer().trim()));
         a.setMarks(ok ? q.getMarks() : 0.0); auto += a.getMarks();
       }
     }

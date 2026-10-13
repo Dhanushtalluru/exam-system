@@ -12,6 +12,9 @@ public class Test {
   private double maxMarks;
   private double passingMarks;
   private boolean published;
+  private boolean restricted;
+  @ManyToMany @JoinTable(name = "test_allowed_users", joinColumns = @JoinColumn(name = "test_id"), inverseJoinColumns = @JoinColumn(name = "user_id"))
+  private Set<User> allowedUsers = new HashSet<>();
   @OneToMany(mappedBy = "test", cascade = CascadeType.ALL, orphanRemoval = true) @OrderBy("id")
   private List<Question> questions = new ArrayList<>();
 }

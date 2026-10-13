@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import useLoad from '../../hooks/useLoad';
 import { Page, Badge, Flash } from '../../components/UI';
-const isManual = a => a.question.type === 'SHORT_ANSWER' || a.question.type === 'DESCRIPTIVE';
+const isManual = a => a.question.type === 'SHORT_ANSWER' || a.question.type === 'DESCRIPTIVE' || a.question.type === 'PICTURE';
 export default function Evaluate() {
   const { id } = useParams();
   const { data, error, loading, reload } = useLoad(() => api('/admin/submissions/' + id), [id]);
@@ -21,7 +21,7 @@ export default function Evaluate() {
     <p><b>{data.userName}</b> ({data.userEmail}) — {data.testTitle} <Badge s={data.status} /> · Score: <b>{data.totalScore} / {data.maxMarks}</b> (pass {data.passingMarks})</p>
     {data.answers.map((a, i) => <div className="qbox" key={a.answerId}>
       <b>Q{i + 1}. {a.question.text}</b> <small>[{a.question.type}, {a.question.marks} marks]</small>
-      <p className="answer">{a.response || <i>No answer</i>}</p>
+      {a.question.imageData && <img src={a.question.imageData} alt="" className="qimg sm" />}<p className="answer">{a.imageData ? <img src={a.imageData} alt="Answer picture" className="qimg" /> : (a.response || <i>No answer</i>)}</p>
       {isManual(a) ? <div className="row"><label>Marks (max {a.question.marks})<input type="number" min="0" max={a.question.marks} step="0.5" disabled={locked}
           value={edits[a.answerId]?.marks ?? a.marks ?? ''} onChange={e => ed(a.answerId, 'marks', e.target.value)} /></label>
         <label style={{ flex: 1 }}>Feedback<input disabled={locked} value={edits[a.answerId]?.feedback ?? a.feedback ?? ''} onChange={e => ed(a.answerId, 'feedback', e.target.value)} /></label></div>

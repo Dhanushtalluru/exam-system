@@ -6,6 +6,7 @@ import com.example.exam.exception.ApiException;
 import com.example.exam.repository.Repos.UserRepo;
 import com.example.exam.security.JwtUtil;
 import jakarta.validation.Valid;
+import java.security.Principal;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
@@ -28,4 +29,17 @@ public class AuthController {
     return auth(u);
   }
   private Map<String, Object> auth(User u) { return Map.of("token", jwt.generate(u.getEmail(), u.getRole().name()), "role", u.getRole().name(), "name", u.getName(), "email", u.getEmail()); }
+  private User cur(Principal p) {
+    if (p == null) throw new ApiException(401, "Not authenticated");
+    return users.findByEmail(p.getName()).orElseThrow(() -> new ApiException(401, "Unknown user"));
+  }
+  private Map<String, Object> profile(User u) { return Map.of("name", u.getName(), "email", u.getEmail(), "role", u.getRole().name()); }
+  @GetMapping("/me") public Map<String, Object> me(Principal p) { return profile(cur(p)); }
+  @PutMapping("/me") public Map<String, Object> updateMe(Principal p, @RequestBody Map<String, String> b) {
+    User u = cur(p); String n = b.get("name"), pw = b.get("password");
+    if (n == null || n.isBlank()) throw new ApiException(400, "Name is required");
+    if (pw != null && !pw.isBlank() && pw.length() < 6) throw new ApiException(400, "Password must be at least 6 characters");
+    u.setName(n.trim()); if (pw != null && !pw.isBlank()) u.setPassword(enc.encode(pw));
+    return profile(users.save(u));
+  }
 }

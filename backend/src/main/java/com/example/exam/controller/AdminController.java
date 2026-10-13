@@ -16,6 +16,9 @@ public class AdminController {
   @DeleteMapping("/tests/{id}") public ResponseEntity<Void> delete(@PathVariable Long id) { svc.deleteTest(id); return ResponseEntity.noContent().build(); }
   @PostMapping("/tests/{id}/publish") public Map<String, Object> publish(@PathVariable Long id, @RequestParam(defaultValue = "true") boolean publish) { return svc.publish(id, publish); }
   @GetMapping("/users") public List<Map<String, Object>> users() { return svc.students(); }
+  @PostMapping("/users") public ResponseEntity<Map<String, Object>> addUser(@Valid @RequestBody UserReq r) { return ResponseEntity.status(HttpStatus.CREATED).body(svc.createUser(r)); }
+  @PutMapping("/users/{id}") public Map<String, Object> editUser(@PathVariable Long id, @Valid @RequestBody UserReq r) { return svc.updateUser(id, r); }
+  @DeleteMapping("/users/{id}") public ResponseEntity<Void> deleteUser(@PathVariable Long id) { svc.deleteUser(id); return ResponseEntity.noContent().build(); }
   @GetMapping("/submissions") public List<Map<String, Object>> submissions(@RequestParam(required = false) String status) { return svc.adminSubmissions(status); }
   @GetMapping("/submissions/{id}") public Map<String, Object> submission(@PathVariable Long id) { return svc.adminSubmission(id); }
   @PutMapping("/submissions/{id}/evaluate") public Map<String, Object> evaluate(@PathVariable Long id, @Valid @RequestBody EvalReq r) { return svc.evaluate(id, r); }

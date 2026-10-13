@@ -9,4 +9,5 @@ public class Answer {
   @Column(name = "response_text", columnDefinition = "TEXT") private String response;
   private Double marks;
   @Column(length = 2000) private String feedback;
+  @Column(columnDefinition = "LONGTEXT") private String imageData;
 }

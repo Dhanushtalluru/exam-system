@@ -8,15 +8,16 @@ import TestForm from './pages/admin/TestForm';
 import Submissions from './pages/admin/Submissions';
 import Evaluate from './pages/admin/Evaluate';
 import Users from './pages/admin/Users';
-import UserTests from './pages/user/Tests';
+import UserTests from './pages/user/Usertests';
 import Instructions from './pages/user/Instructions';
 import Take from './pages/user/Take';
 import My from './pages/user/My';
 import Result from './pages/user/Result';
+import Profile from './pages/Profile';
 function Guard({ role }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  return user.role === role ? <Outlet /> : <Navigate to="/" replace />;
+  return !role || user.role === role ? <Outlet /> : <Navigate to="/" replace />;
 }
 function Home() { const { user } = useAuth(); return <Navigate to={!user ? '/login' : user.role === 'ADMIN' ? '/admin' : '/tests'} replace />; }
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/tests" element={<UserTests />} /><Route path="/tests/:id" element={<Instructions />} />
         <Route path="/my" element={<My />} /><Route path="/my/:id" element={<Result />} /></Route>
       <Route path="/take/:testId" element={<Take />} /></Route>
+    <Route element={<Guard />}><Route element={<Layout />}><Route path="/profile" element={<Profile />} /></Route></Route>
     <Route path="*" element={<Home />} />
   </Routes>;
 }
