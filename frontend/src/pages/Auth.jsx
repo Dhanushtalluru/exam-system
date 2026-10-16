@@ -17,5 +17,5 @@ export default function Auth({ register }) {
     <label>Email<input type="email" required {...bind('email')} /></label>
     <label>Password<input type="password" required minLength={register ? 6 : 1} {...bind('password')} /></label>
     <button className="btn" disabled={busy}>{busy ? 'Please wait…' : register ? 'Register' : 'Login'}</button>
-    <p>{register ? <Link to="/login">Already registered? Login</Link> : <Link to="/register">New student? Register</Link>}</p></form>;
+    <p>{register ? <Link to="/login">Already registered? Login</Link> : <Link to="/register">New student? Register</Link>}</p><p className="legal"><Link to="/privacy">Privacy Policy</Link><Link to="/terms">Terms and Conditions</Link></p></form>;
 }

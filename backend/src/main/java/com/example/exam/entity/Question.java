@@ -12,7 +12,11 @@ public class Question {
   private double marks;
   @ElementCollection(fetch = FetchType.EAGER) @CollectionTable(name = "options", joinColumns = @JoinColumn(name = "question_id"))
   @Column(name = "option_value") @OrderColumn(name = "position") private List<String> options = new ArrayList<>();
-  private String correctAnswer;
+  @Column(length = 2000) private String correctAnswer;
   @Column(length = 2000) private String description;
+  @Column(length = 100) private String topic;
+  @Column(length = 100) private String section;
+  @Column(columnDefinition = "LONGTEXT") private String audioData;
+  private Integer playLimit;
   @Column(columnDefinition = "LONGTEXT") private String imageData;
 }

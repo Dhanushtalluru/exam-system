@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import useLoad from '../../hooks/useLoad';
 import { Page, Badge, Flash } from '../../components/UI';
+import { printReport } from '../../utils/print';
 const isManual = a => a.question.type === 'SHORT_ANSWER' || a.question.type === 'DESCRIPTIVE' || a.question.type === 'PICTURE';
 export default function Evaluate() {
   const { id } = useParams();
@@ -17,8 +18,8 @@ export default function Evaluate() {
     if (!items.length) return setErr('Enter marks for at least one answer');
     act(() => api(`/admin/submissions/${id}/evaluate`, 'PUT', { answers: items }), 'Evaluation saved');
   };
-  return <Page title="Evaluate Submission" error={error || err} loading={loading}><Flash m={msg} />{data && <>
-    <p><b>{data.userName}</b> ({data.userEmail}) — {data.testTitle} <Badge s={data.status} /> · Score: <b>{data.totalScore} / {data.maxMarks}</b> (pass {data.passingMarks})</p>
+  return <Page title="Evaluate Submission" error={error || err} loading={loading} actions={data && <button className="btn" onClick={() => printReport(data)}>Print report</button>}><Flash m={msg} />{data && <>
+    <p><b>{data.userName}</b> ({data.userEmail}) - {data.testTitle} <Badge s={data.status} /> · Score: <b>{data.totalScore} / {data.maxMarks}</b> (pass {data.passingMarks})</p>
     {data.answers.map((a, i) => <div className="qbox" key={a.answerId}>
       <b>Q{i + 1}. {a.question.text}</b> <small>[{a.question.type}, {a.question.marks} marks]</small>
       {a.question.imageData && <img src={a.question.imageData} alt="" className="qimg sm" />}<p className="answer">{a.imageData ? <img src={a.imageData} alt="Answer picture" className="qimg" /> : (a.response || <i>No answer</i>)}</p>

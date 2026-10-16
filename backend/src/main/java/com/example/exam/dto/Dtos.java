@@ -7,7 +7,7 @@ public class Dtos {
   public record RegisterReq(@NotBlank String name, @NotBlank @Email String email, @NotBlank @Size(min = 6) String password) {}
   public record UserReq(@NotBlank String name, @NotBlank @Email String email, String password) {}
   public record LoginReq(@NotBlank String email, @NotBlank String password) {}
-  public record QReq(@NotNull QType type, @NotBlank String text, @NotNull @Positive Double marks, List<String> options, String correctAnswer, String description, String imageData) {}
+  public record QReq(@NotNull QType type, @NotBlank String text, @NotNull @Positive Double marks, List<String> options, String correctAnswer, String description, String imageData, String topic, String section, String audioData, Integer playLimit) {}
   public record TestReq(@NotBlank String title, String description, String instructions, @NotNull @Min(1) Integer durationMinutes,
                         @NotNull @PositiveOrZero Double passingMarks, @NotEmpty @Valid List<QReq> questions, String access, List<Long> allowedUserIds) {}
   public record AnswerReq(@NotNull Long questionId, String response, String imageData) {}

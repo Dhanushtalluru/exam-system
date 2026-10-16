@@ -23,6 +23,21 @@ public class ExamService {
     if (!d.startsWith("data:image/") || d.length() > 1_500_000) throw new ApiException(400, "Picture must be an image smaller than about 1 MB");
     return d;
   }
+  static String aud(String d) {
+    if (d == null || d.isBlank()) return null;
+    if (!d.startsWith("data:audio/") || d.length() > 4_000_000) throw new ApiException(400, "Audio must be an audio clip smaller than about 2.5 MB");
+    return d;
+  }
+  static String[] norm(String s) { String t = s.toLowerCase().replaceAll("[^\\p{L}\\p{N}\\s]", " ").trim(); return t.isEmpty() ? new String[0] : t.split("\\s+"); }
+  /** Share of expected words typed in the right order (0 to 1). Ignores case and punctuation. */
+  static double similarity(String given, String expected) {
+    if (given == null || expected == null) return 0;
+    String[] g = norm(given), e = norm(expected);
+    if (g.length == 0 || e.length == 0) return 0;
+    int[][] d = new int[g.length + 1][e.length + 1];
+    for (int i = 1; i <= g.length; i++) for (int j = 1; j <= e.length; j++) d[i][j] = g[i - 1].equals(e[j - 1]) ? d[i - 1][j - 1] + 1 : Math.max(d[i - 1][j], d[i][j - 1]);
+    return (double) d[g.length][e.length] / Math.max(g.length, e.length);
+  }
   static Set<String> setOf(String s) { return Arrays.stream(s.split("\n")).map(String::trim).filter(x -> !x.isEmpty()).collect(java.util.stream.Collectors.toSet()); }
   void applyAccess(Test t, TestReq r) {
     boolean sel = "SELECTED".equalsIgnoreCase(r.access());
@@ -36,7 +51,7 @@ public class ExamService {
 
   // ---------- mappers ----------
   Map<String, Object> qm(Question q, boolean admin) {
-    Map<String, Object> r = m("id", q.getId(), "type", q.getType(), "text", q.getText(), "marks", q.getMarks(), "description", q.getDescription(), "imageData", q.getImageData(), "options", new ArrayList<>(q.getOptions()));
+    Map<String, Object> r = m("id", q.getId(), "type", q.getType(), "text", q.getText(), "marks", q.getMarks(), "description", q.getDescription(), "imageData", q.getImageData(), "topic", q.getTopic(), "section", q.getSection(), "audioData", q.getAudioData(), "playLimit", q.getPlayLimit(), "options", new ArrayList<>(q.getOptions()));
     if (admin) r.put("correctAnswer", q.getCorrectAnswer());
     return r;
   }
@@ -48,7 +63,7 @@ public class ExamService {
     Test t = s.getTest(); User u = s.getUser();
     return m("id", s.getId(), "testId", t.getId(), "testTitle", t.getTitle(), "userId", u.getId(), "userName", u.getName(), "userEmail", u.getEmail(), "status", s.getStatus(),
         "startedAt", s.getStartedAt(), "submittedAt", s.getSubmittedAt(), "autoScore", s.getAutoScore(), "totalScore", s.getTotalScore(),
-        "maxMarks", t.getMaxMarks(), "passingMarks", t.getPassingMarks(), "resultPublished", s.isResultPublished());
+        "maxMarks", t.getMaxMarks(), "passingMarks", t.getPassingMarks(), "durationMinutes", t.getDurationMinutes(), "description", t.getDescription(), "resultPublished", s.isResultPublished());
   }
   Map<String, Object> usum(Submission s) {
     Map<String, Object> r = ssum(s);
@@ -78,6 +93,15 @@ public class ExamService {
     for (QReq x : r.questions()) {
       Question q = new Question(); q.setTest(t); q.setType(x.type()); q.setText(x.text()); q.setMarks(x.marks());
       q.setDescription(x.description() == null || x.description().isBlank() ? null : x.description().trim()); q.setImageData(img(x.imageData()));
+      if (x.topic() != null && x.topic().trim().length() > 100) throw new ApiException(400, "Topic must be 100 characters or fewer");
+      q.setTopic(x.topic() == null || x.topic().isBlank() ? null : x.topic().trim());
+      if (x.section() != null && x.section().trim().length() > 100) throw new ApiException(400, "Section name must be 100 characters or fewer");
+      q.setSection(x.section() == null || x.section().isBlank() ? null : x.section().trim());
+      q.setAudioData(aud(x.audioData())); q.setPlayLimit(x.playLimit() == null ? 2 : Math.max(0, x.playLimit()));
+      if (x.type() == QType.LISTENING) {
+        if (q.getAudioData() == null || x.correctAnswer() == null || x.correctAnswer().isBlank()) throw new ApiException(400, "Listening questions need an audio clip and the text students should type");
+        q.setCorrectAnswer(x.correctAnswer().trim());
+      }
       if (x.type() == QType.MCQ) {
         List<String> o = x.options() == null ? List.of() : x.options().stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
         if (o.size() < 2) throw new ApiException(400, "MCQ needs at least 2 options");
@@ -231,7 +255,7 @@ public class ExamService {
       if (manual(q)) { hasManual = true; a.setMarks(null); }
       else {
         boolean ok = a.getResponse() != null && q.getCorrectAnswer() != null && (q.getType() == QType.MULTI_SELECT ? setOf(a.getResponse()).equals(setOf(q.getCorrectAnswer())) : a.getResponse().trim().equalsIgnoreCase(q.getCorrectAnswer().trim()));
-        a.setMarks(ok ? q.getMarks() : 0.0); auto += a.getMarks();
+        a.setMarks(q.getType() == QType.LISTENING ? Math.round(similarity(a.getResponse(), q.getCorrectAnswer()) * q.getMarks() * 2) / 2.0 : (ok ? q.getMarks() : 0.0)); auto += a.getMarks();
       }
     }
     s.setAutoScore(auto); s.setTotalScore(auto); s.setSubmittedAt(at);

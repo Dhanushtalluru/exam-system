@@ -16,7 +16,7 @@ export default function Layout() {
   return <div><header><Link to={home} className="logo">ExamPortal</Link>
     <nav>{links.map(([to, t]) => <NavLink key={to} to={to} end>{t}</NavLink>)}</nav>
     <div className="right">
-      <button className="btn sm" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Switch theme">{theme === 'dark' ? '☀ Light' : '☾ Dark'}</button>
+      <button className="btn sm" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Switch theme">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
       <div className="menu" ref={ref}>
         <button className="user-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
           <span className="avatar">{user.name?.[0]?.toUpperCase()}</span><span className="uname">{user.name}</span><span className="role">{user.role}</span> ▾</button>
@@ -24,5 +24,5 @@ export default function Layout() {
           <Link to={home} onClick={() => setOpen(false)}>Dashboard</Link>
           <Link to="/profile" onClick={() => setOpen(false)}>Edit Details</Link>
           <button className="out" onClick={() => { logout(); nav('/login'); }}>Logout</button></div>}
-      </div></div></header><main><Outlet /></main></div>;
+      </div></div></header><main><Outlet /></main><footer className="foot"><Link to="/privacy">Privacy Policy</Link><Link to="/terms">Terms and Conditions</Link></footer></div>;
 }
